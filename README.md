@@ -1,7 +1,7 @@
 # rednote-scraper
 
-Browserless CLI scraper for rednote.com (Xiaohongshu) search results: returns
-note links with their full-resolution photo and video URLs, and downloads them.
+Browserless CLI scraper for RedNote (Xiaohongshu) search results, with
+full-resolution image/video URL extraction and concurrent downloads.
 
 ## How it works
 
@@ -48,7 +48,7 @@ step:
 ```
 pip install 'rednote-scraper[browser]' && playwright install chromium
 rednote auth login      # visible window; scan the QR once
-rednote auth refresh    # headless; re-harvests cookie + signature in ~5s
+rednote auth refresh    # headless; re-harvests cookie + signature
 rednote search "logo" -n 100 --auto-refresh
 ```
 
@@ -85,8 +85,9 @@ type filter (`all`, `video`, `image`), `-c` concurrency, `--preview-images`
 to keep small CDN variants, `--no-video-urls` to skip detail requests.
 
 Search pages are fetched in parallel, as are note detail lookups and media
-downloads; downloads are resumable (existing files are skipped, partial files
-are written to `.part` and renamed on completion).
+downloads; downloads are restart-safe: completed files are skipped and
+incomplete downloads are written to `.part` files before being atomically
+renamed.
 
 ## Tests
 
