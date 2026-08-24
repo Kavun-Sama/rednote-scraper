@@ -100,6 +100,18 @@ python -m pytest
 
 ## License
 
-GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE).
+Copyright (C) 2026 Kavun-Sama
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. The full text is in [LICENSE](LICENSE).
+
 Section 13 applies: if you run a modified version of this tool as a network
 service, its users must be able to obtain the modified source.
+
+GitHub's sidebar labels the repository `AGPL-3.0` because its detector matches
+the license text alone, and that text is identical for the `-only` and
+`-or-later` variants — the label would not change if the grant did. The grant
+is `-or-later`, stated here, in the SPDX header of every source file and in the
+packaging metadata.
