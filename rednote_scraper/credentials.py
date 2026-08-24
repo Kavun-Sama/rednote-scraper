@@ -26,8 +26,46 @@ DEFAULT_PATH = Path(
 API_HOST = "webapi.rednote.com"
 SEARCH_PATH = "/api/sns/web/v1/search/notes"
 
+PROFILE_DIR = DEFAULT_PATH.parent / "browser-profile"
+
 _SIGNATURE_HEADERS = ("x-s", "x-t", "x-s-common")
-_REQUIRED_COOKIES = ("web_session", "a1")
+
+#: The only cookies the API actually checks: the session itself and the
+#: data-residency marker.  Everything else the browser sends is decorative --
+#: verified by leave-one-out probing of the live endpoint.
+REQUIRED_COOKIES = ("web_session", "x-rednote-datactry")
+
+
+def parse_cookie(cookie: str) -> dict[str, str]:
+    """Parse a ``k=v; k=v`` cookie header into a dict."""
+    pairs = {}
+    for part in cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name:
+            pairs[name] = value
+    return pairs
+
+
+def format_cookie(pairs: dict[str, str]) -> str:
+    return "; ".join(f"{name}={value}" for name, value in pairs.items())
+
+
+def merge_cookie(current: str, incoming: str) -> str:
+    """Overlay ``incoming`` cookie pairs onto ``current``, keeping the rest."""
+    pairs = parse_cookie(current)
+    pairs.update(parse_cookie(incoming))
+    return format_cookie(pairs)
+
+
+def check_cookie(cookie: str) -> None:
+    """Raise if the cookie lacks a value the API requires."""
+    pairs = parse_cookie(cookie)
+    missing = [name for name in REQUIRED_COOKIES if not pairs.get(name)]
+    if missing:
+        raise CredentialsError(
+            f"cookie is missing {', '.join(missing)} -- copy it from a browser "
+            f"that is logged in to rednote.com"
+        )
 
 
 @dataclass(slots=True)
@@ -64,6 +102,14 @@ class Credentials:
             "user-agent": self.user_agent,
             "cookie": self.cookie,
         }
+
+    def with_cookie(self, cookie: str) -> "Credentials":
+        """Return a copy with ``cookie`` overlaid on the stored one."""
+        return Credentials(
+            cookie=merge_cookie(self.cookie, cookie),
+            user_agent=self.user_agent,
+            signatures=dict(self.signatures),
+        )
 
     def save(self, path: Path = DEFAULT_PATH) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,12 +177,7 @@ def from_har(paths: list[Path]) -> Credentials:
 
     if not cookie:
         raise CredentialsError("no cookies found in the supplied HAR files")
-    missing = [name for name in _REQUIRED_COOKIES if f"{name}=" not in cookie]
-    if missing:
-        raise CredentialsError(
-            f"cookie is missing {', '.join(missing)} -- capture the HAR while "
-            f"logged in to rednote.com"
-        )
+    check_cookie(cookie)
     if SEARCH_PATH not in signatures:
         raise CredentialsError(
             f"no signature for {SEARCH_PATH} in the supplied HAR files -- "

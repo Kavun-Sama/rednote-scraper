@@ -12,8 +12,9 @@ no query string, so one signature captured from the browser stays valid for
 arbitrary keywords, pages and sort orders until the session cookie expires.
 No headless browser and no signing implementation are required.
 
-`x-s-common` and `x-rap-param` are optional; the session cookie (`web_session`,
-`a1`) is not — unauthenticated requests get `code -101`.
+`x-s-common` and `x-rap-param` are optional. Leave-one-out probing of the
+cookie shows only two pairs matter: `web_session` and `x-rednote-datactry`.
+Everything else the browser sends is decorative.
 
 Video stream URLs are absent from search results. They are read from the
 server-rendered note page (`/discovery/item/<id>`), which embeds
@@ -31,14 +32,43 @@ pip install -e .
 
 ## Credentials
 
-1. Log in to rednote.com in a browser.
-2. Open DevTools → Network, run any search, right-click the
-   `search/notes` request → Copy → Save all as HAR.
-3. `rednote auth import-har capture.har`
-
 Stored at `~/.config/rednote-scraper/credentials.json` (override with
-`$REDNOTE_CREDENTIALS`). Re-import when requests start failing with
-`signature or session cookie has expired`.
+`$REDNOTE_CREDENTIALS`).
+
+**From a HAR capture** — log in to rednote.com, DevTools → Network, run a
+search, right-click the `search/notes` request → Copy → Save all as HAR:
+
+```
+rednote auth import-har capture.har
+```
+
+**From a browser profile** — installs once, then renews without any manual
+step:
+
+```
+pip install 'rednote-scraper[browser]' && playwright install chromium
+rednote auth login      # visible window; scan the QR once
+rednote auth refresh    # headless; re-harvests cookie + signature in ~5s
+rednote search "logo" -n 100 --auto-refresh
+```
+
+**Cookie only** — the signature does not expire with the session, so a dead
+session can be revived by pasting one value from DevTools → Application →
+Cookies:
+
+```
+rednote auth cookie "web_session=040069..."
+```
+
+### Why renewal needs a browser
+
+Every `webapi.rednote.com` endpoint is signed, the QR login flow included, and
+the QR status poll is a `GET` whose signature covers its query string — so it
+cannot be replayed the way the search signature can. A session therefore cannot
+be minted offline. A dedicated Playwright profile is used rather than the
+user's own browser profile because Chromium-based browsers on Windows bind
+their cookie store to the application (app-bound encryption), which makes
+reading their cookies from outside unreliable.
 
 ## Usage
 

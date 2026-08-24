@@ -8,9 +8,16 @@ import json
 import sys
 from pathlib import Path
 
+from . import browser
 from .client import SORTS, RednoteClient, media_targets
-from .credentials import DEFAULT_PATH, Credentials, from_har
-from .errors import RednoteError
+from .credentials import (
+    DEFAULT_PATH,
+    PROFILE_DIR,
+    Credentials,
+    check_cookie,
+    from_har,
+)
+from .errors import RednoteError, SessionExpiredError, SignatureExpiredError
 from .models import Note
 
 TYPE_FILTERS = {"all": None, "video": "video", "image": "normal"}
@@ -29,6 +36,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_har.add_argument("har", nargs="+", type=Path, help="HAR file or files")
     import_har.add_argument("-o", "--output", type=Path, default=DEFAULT_PATH)
+    cookie = auth_sub.add_parser(
+        "cookie", help="replace the session cookie, keeping stored signatures"
+    )
+    cookie.add_argument(
+        "value",
+        help="cookie header copied from the browser, or just 'web_session=...'",
+    )
+    auth_sub.add_parser(
+        "login", help="open a browser once to sign in to the scraper profile"
+    )
+    refresh = auth_sub.add_parser(
+        "refresh", help="re-harvest cookie and signature from the browser profile"
+    )
+    refresh.add_argument(
+        "--headful", action="store_true", help="show the browser window"
+    )
     auth_sub.add_parser("show", help="print the stored credential summary")
 
     search = subparsers.add_parser("search", help="search notes and list media links")
@@ -54,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
         "-d", "--download", type=Path, metavar="DIR", help="download media into DIR"
     )
     search.add_argument("--credentials", type=Path, default=DEFAULT_PATH)
+    search.add_argument(
+        "--auto-refresh",
+        action="store_true",
+        help="re-harvest credentials from the browser profile and retry once "
+        "when the API rejects them",
+    )
 
     download = subparsers.add_parser("download", help="download media from a JSON dump")
     download.add_argument("source", type=Path, help="JSON file produced by search")
@@ -87,6 +116,23 @@ def _auth(args: argparse.Namespace) -> int:
         print(f"signed endpoints: {', '.join(sorted(credentials.signatures))}")
         return 0
 
+    if args.auth_command == "cookie":
+        credentials = Credentials.load(DEFAULT_PATH).with_cookie(args.value)
+        check_cookie(credentials.cookie)
+        print(f"cookie updated in {credentials.save(DEFAULT_PATH)}")
+        return 0
+
+    if args.auth_command == "login":
+        asyncio.run(browser.login())
+        print(f"browser profile ready at {PROFILE_DIR}")
+        return 0
+
+    if args.auth_command == "refresh":
+        credentials = asyncio.run(_refresh(DEFAULT_PATH, headless=not args.headful))
+        print(f"credentials refreshed in {DEFAULT_PATH}")
+        print(f"signed endpoints: {', '.join(sorted(credentials.signatures))}")
+        return 0
+
     credentials = Credentials.load(DEFAULT_PATH)
     cookies = [pair.split("=", 1)[0] for pair in credentials.cookie.split("; ")]
     print(f"cookies: {', '.join(cookies)}")
@@ -94,8 +140,33 @@ def _auth(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _refresh(path: Path, *, headless: bool = True) -> Credentials:
+    """Harvest fresh credentials, preserving signatures the browser did not see."""
+    harvested = await browser.harvest(headless=headless)
+    try:
+        signatures = dict(Credentials.load(path).signatures)
+    except RednoteError:
+        signatures = {}
+    signatures.update(harvested.signatures)
+    harvested.signatures = signatures
+    check_cookie(harvested.cookie)
+    harvested.save(path)
+    return harvested
+
+
 async def _search(args: argparse.Namespace) -> int:
     credentials = Credentials.load(args.credentials)
+    try:
+        return await _run_search(credentials, args)
+    except (SessionExpiredError, SignatureExpiredError) as exc:
+        if not args.auto_refresh:
+            raise
+        print(f"{exc}\nrefreshing credentials from the browser...", file=sys.stderr)
+        credentials = await _refresh(args.credentials)
+        return await _run_search(credentials, args)
+
+
+async def _run_search(credentials: Credentials, args: argparse.Namespace) -> int:
     async with RednoteClient(credentials, concurrency=args.concurrency) as client:
         notes = await client.search(
             args.keyword,

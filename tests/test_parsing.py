@@ -1,5 +1,3 @@
-import json
-
 from rednote_scraper.parsing import (
     apply_video_detail,
     original_image_url,
@@ -81,3 +79,21 @@ def test_apply_video_detail_picks_the_largest_stream():
     }
     apply_video_detail(note, detail)
     assert (note.video, note.video_backups, note.duration) == ("big", ["b"], 41)
+
+
+def test_merge_cookie_overlays_incoming_pairs():
+    from rednote_scraper.credentials import merge_cookie
+
+    merged = merge_cookie("a=1; web_session=old; b=2", "web_session=new; c=3")
+    assert merged == "a=1; web_session=new; b=2; c=3"
+
+
+def test_check_cookie_rejects_a_cookie_without_a_session():
+    import pytest
+
+    from rednote_scraper.credentials import check_cookie
+    from rednote_scraper.errors import CredentialsError
+
+    check_cookie("web_session=s; x-rednote-datactry=AE")
+    with pytest.raises(CredentialsError, match="web_session"):
+        check_cookie("x-rednote-datactry=AE")

@@ -11,13 +11,16 @@ from typing import Any, Iterable, Sequence
 import httpx
 
 from .credentials import API_HOST, SEARCH_PATH, Credentials
-from .errors import ApiError, SignatureExpiredError
+from .errors import ApiError, SessionExpiredError, SignatureExpiredError
 from .models import Note
 from .parsing import apply_video_detail, parse_note_page, parse_search_item
 
 SEARCH_URL = f"https://{API_HOST}{SEARCH_PATH}"
 ITEM_URL = "https://www.rednote.com/discovery/item/{note_id}"
 PAGE_SIZE = 20
+
+#: -101 no session, -100 session expired, -3 session present but unusable.
+SESSION_ERROR_CODES = frozenset({-3, -100, -101})
 
 SORTS = (
     "general",
@@ -143,8 +146,13 @@ class RednoteClient:
         code = body.get("code", 0)
         if code == -1:
             raise SignatureExpiredError(
-                "request rejected -- the captured x-s signature or the session "
-                "cookie has expired; re-import a fresh HAR capture"
+                "request rejected -- the captured x-s signature is no longer "
+                "accepted; refresh it with 'rednote auth refresh'"
+            )
+        if code in SESSION_ERROR_CODES:
+            raise SessionExpiredError(
+                f"session cookie rejected (code {code}: {body.get('msg', '')}) -- "
+                f"refresh it with 'rednote auth refresh' or 'rednote auth cookie'"
             )
         if not body.get("success"):
             raise ApiError(code, body.get("msg", "unknown error"))

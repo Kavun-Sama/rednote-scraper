@@ -10,7 +10,15 @@ class CredentialsError(RednoteError):
 
 
 class SignatureExpiredError(RednoteError):
-    """The stored request signature or session cookie is no longer accepted."""
+    """The stored request signature was rejected (API code -1)."""
+
+
+class SessionExpiredError(RednoteError):
+    """The session cookie is missing or no longer valid (API code -100/-101)."""
+
+
+class BrowserUnavailableError(RednoteError):
+    """Playwright is not installed or no logged-in browser profile exists."""
 
 
 class ApiError(RednoteError):
