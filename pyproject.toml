@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "rednote-scraper"
 version = "1.0.0"
 description = "Fast browserless CLI scraper for rednote.com search results"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+]
 requires-python = ">=3.11"
 dependencies = ["httpx[http2]>=0.27"]
 

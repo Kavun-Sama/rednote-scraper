@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Normalisation of raw API payloads into :class:`Note` objects."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Asynchronous rednote client: search, detail resolution and media download."""
 
 from __future__ import annotations

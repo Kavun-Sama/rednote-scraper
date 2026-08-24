@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Credential harvesting from a real browser session.
 
 Neither the session cookie nor a signature can be minted offline: every

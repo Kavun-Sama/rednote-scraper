@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Credential storage and extraction from browser HAR captures.
 
 The rednote web API signs every request with an ``x-s``/``x-t`` header pair.

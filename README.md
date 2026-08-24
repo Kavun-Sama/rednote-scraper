@@ -93,3 +93,9 @@ are written to `.part` and renamed on completion).
 ```
 python -m pytest tests
 ```
+
+## License
+
+GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE).
+Section 13 applies: if you run a modified version of this tool as a network
+service, its users must be able to obtain the modified source.

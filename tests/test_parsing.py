@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 from rednote_scraper.parsing import (
     apply_video_detail,
     original_image_url,
