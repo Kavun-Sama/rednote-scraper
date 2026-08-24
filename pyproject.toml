@@ -5,13 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rednote-scraper"
 version = "1.0.0"
-description = "Fast browserless CLI scraper for rednote.com search results"
+description = "Browserless CLI scraper for RedNote (Xiaohongshu) search results"
+readme = "README.md"
 license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
 ]
 requires-python = ">=3.11"
 dependencies = ["httpx[http2]>=0.27"]
+
+[project.urls]
+Repository = "https://github.com/Kavun-Sama/rednote-scraper"
+Issues = "https://github.com/Kavun-Sama/rednote-scraper/issues"
 
 [project.optional-dependencies]
 browser = ["playwright>=1.44"]
