@@ -1,5 +1,7 @@
 # rednote-scraper
 
+[![CI](https://github.com/Kavun-Sama/rednote-scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/Kavun-Sama/rednote-scraper/actions/workflows/ci.yml)
+
 Browserless CLI scraper for RedNote (Xiaohongshu) search results, with
 full-resolution image/video URL extraction and concurrent downloads.
 
@@ -92,7 +94,8 @@ renamed.
 ## Tests
 
 ```
-python -m pytest tests
+pip install -e ".[dev]"
+python -m pytest
 ```
 
 ## License

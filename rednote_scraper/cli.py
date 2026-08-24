@@ -191,8 +191,10 @@ async def _run_search(credentials: Credentials, args: argparse.Namespace) -> int
 
 async def _download(args: argparse.Namespace) -> int:
     payload = json.loads(args.source.read_text(encoding="utf-8"))
-    notes = [Note(**{k: v for k, v in item.items() if k in Note.__slots__})
-             for item in payload["notes"]]
+    notes = [
+        Note(**{k: v for k, v in item.items() if k in Note.__slots__})
+        for item in payload["notes"]
+    ]
     credentials = Credentials.load(args.credentials)
     async with RednoteClient(credentials, concurrency=args.concurrency) as client:
         await _fetch_media(client, notes, args.output)
@@ -231,9 +233,7 @@ def _report(notes: list[Note]) -> None:
 
     images = sum(len(note.images) for note in notes)
     videos = sum(1 for note in notes if note.video)
-    print(
-        f"\n{len(notes)} notes, {images} images, {videos} videos", file=sys.stderr
-    )
+    print(f"\n{len(notes)} notes, {images} images, {videos} videos", file=sys.stderr)
 
 
 def _write_json(path: Path, keyword: str, notes: list[Note]) -> None:
@@ -243,7 +243,5 @@ def _write_json(path: Path, keyword: str, notes: list[Note]) -> None:
         "count": len(notes),
         "notes": [note.to_dict() for note in notes],
     }
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"wrote {path}", file=sys.stderr)

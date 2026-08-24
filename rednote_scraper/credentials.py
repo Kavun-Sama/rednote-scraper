@@ -104,7 +104,7 @@ class Credentials:
             "cookie": self.cookie,
         }
 
-    def with_cookie(self, cookie: str) -> "Credentials":
+    def with_cookie(self, cookie: str) -> Credentials:
         """Return a copy with ``cookie`` overlaid on the stored one."""
         return Credentials(
             cookie=merge_cookie(self.cookie, cookie),
@@ -124,7 +124,7 @@ class Credentials:
         return path
 
     @classmethod
-    def load(cls, path: Path = DEFAULT_PATH) -> "Credentials":
+    def load(cls, path: Path = DEFAULT_PATH) -> Credentials:
         if not path.exists():
             raise CredentialsError(
                 f"credentials not found at {path}; run "

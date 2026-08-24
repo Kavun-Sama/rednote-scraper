@@ -6,8 +6,9 @@ from __future__ import annotations
 import asyncio
 import random
 import string
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 import httpx
 
@@ -57,7 +58,7 @@ class RednoteClient:
             http2=True, timeout=timeout, limits=limits, follow_redirects=True
         )
 
-    async def __aenter__(self) -> "RednoteClient":
+    async def __aenter__(self) -> RednoteClient:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:

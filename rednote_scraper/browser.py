@@ -98,9 +98,7 @@ async def login(*, profile_dir: Path = PROFILE_DIR, timeout: float = 300.0) -> N
 
             async def logged_in() -> bool:
                 cookies = await context.cookies(COOKIE_DOMAIN)
-                return any(
-                    c["name"] == "web_session" and c["value"] for c in cookies
-                )
+                return any(c["name"] == "web_session" and c["value"] for c in cookies)
 
             await _wait_for(logged_in, timeout)
             if not await logged_in():
