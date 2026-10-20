@@ -19,6 +19,7 @@ from .credentials import (
     from_har,
 )
 from .errors import RednoteError, SessionExpiredError, SignatureExpiredError
+from .limiter import DEFAULT_LIMITS, LEGACY_LIMITS, Limits
 from .models import Note
 
 TYPE_FILTERS = {"all": None, "video": "video", "image": "normal"}
@@ -60,9 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("-n", "--limit", type=int, default=40, help="max notes")
     search.add_argument("-s", "--sort", choices=SORTS, default="general")
     search.add_argument("-t", "--type", choices=TYPE_FILTERS, default="all")
-    search.add_argument(
-        "-c", "--concurrency", type=int, default=8, help="parallel requests"
-    )
+    _add_limit_arguments(search, api=True)
     search.add_argument(
         "--preview-images",
         action="store_true",
@@ -88,10 +87,77 @@ def build_parser() -> argparse.ArgumentParser:
     download = subparsers.add_parser("download", help="download media from a JSON dump")
     download.add_argument("source", type=Path, help="JSON file produced by search")
     download.add_argument("-o", "--output", type=Path, default=Path("downloads"))
-    download.add_argument("-c", "--concurrency", type=int, default=8)
+    _add_limit_arguments(download, api=False)
     download.add_argument("--credentials", type=Path, default=DEFAULT_PATH)
 
     return parser
+
+
+def _positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"expected a positive integer, got {text!r}")
+    return value
+
+
+def _non_negative_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1.0
+    if not value >= 0:
+        raise argparse.ArgumentTypeError(f"expected a number >= 0, got {text!r}")
+    return value
+
+
+def _add_limit_arguments(parser: argparse.ArgumentParser, *, api: bool) -> None:
+    """Add the request-limit flags; ``api`` adds those that apply to API calls."""
+    parser.add_argument(
+        "-c",
+        "--concurrency",
+        type=_positive_int,
+        metavar="N",
+        help=f"parallel requests (default {DEFAULT_LIMITS.concurrency})",
+    )
+    parser.add_argument(
+        "--no-limits",
+        action="store_true",
+        help=(
+            "restore the unrestricted behaviour: no pacing, no result ceiling, "
+            if api
+            else "restore the previous concurrency: "
+        )
+        + f"{LEGACY_LIMITS.concurrency} parallel requests unless -c is given",
+    )
+    if api:
+        parser.add_argument(
+            "--delay",
+            type=_non_negative_float,
+            metavar="SECONDS",
+            help="minimum pause between API requests "
+            f"(default {DEFAULT_LIMITS.delay}); media downloads are not paced",
+        )
+        parser.add_argument(
+            "--max-results",
+            type=_positive_int,
+            metavar="N",
+            help=f"ceiling for -n (default {DEFAULT_LIMITS.max_results})",
+        )
+
+
+def resolve_limits(args: argparse.Namespace) -> Limits:
+    """Combine the defaults (or ``--no-limits``) with explicit flag overrides."""
+    base = LEGACY_LIMITS if args.no_limits else DEFAULT_LIMITS
+    delay = getattr(args, "delay", None)
+    max_results = getattr(args, "max_results", None)
+    return Limits(
+        concurrency=args.concurrency or base.concurrency,
+        delay=base.delay if delay is None else delay,
+        max_results=base.max_results if max_results is None else max_results,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,7 +234,7 @@ async def _search(args: argparse.Namespace) -> int:
 
 
 async def _run_search(credentials: Credentials, args: argparse.Namespace) -> int:
-    async with RednoteClient(credentials, concurrency=args.concurrency) as client:
+    async with RednoteClient(credentials, limits=resolve_limits(args)) as client:
         notes = await client.search(
             args.keyword,
             limit=args.limit,
@@ -196,7 +262,7 @@ async def _download(args: argparse.Namespace) -> int:
         for item in payload["notes"]
     ]
     credentials = Credentials.load(args.credentials)
-    async with RednoteClient(credentials, concurrency=args.concurrency) as client:
+    async with RednoteClient(credentials, limits=resolve_limits(args)) as client:
         await _fetch_media(client, notes, args.output)
     return 0
 

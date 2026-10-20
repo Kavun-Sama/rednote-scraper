@@ -29,3 +29,7 @@ class ApiError(RednoteError):
         super().__init__(f"API error {code}: {msg}")
         self.code = code
         self.msg = msg
+
+
+class LimitError(RednoteError):
+    """A request exceeds a configured limit."""

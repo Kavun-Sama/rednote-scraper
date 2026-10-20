@@ -14,6 +14,7 @@ import httpx
 
 from .credentials import API_HOST, SEARCH_PATH, Credentials
 from .errors import ApiError, SessionExpiredError, SignatureExpiredError
+from .limiter import DEFAULT_LIMITS, Limits, RequestLimiter
 from .models import Note
 from .parsing import apply_video_detail, parse_note_page, parse_search_item
 
@@ -46,16 +47,20 @@ class RednoteClient:
         self,
         credentials: Credentials,
         *,
-        concurrency: int = 8,
+        limits: Limits = DEFAULT_LIMITS,
         timeout: float = 20.0,
     ) -> None:
         self._credentials = credentials
-        self._semaphore = asyncio.Semaphore(concurrency)
-        limits = httpx.Limits(
-            max_connections=concurrency * 2, max_keepalive_connections=concurrency * 2
-        )
+        self._limits = limits
+        self._limiter = RequestLimiter(limits)
+        connections = limits.concurrency * 2
         self._http = httpx.AsyncClient(
-            http2=True, timeout=timeout, limits=limits, follow_redirects=True
+            http2=True,
+            timeout=timeout,
+            limits=httpx.Limits(
+                max_connections=connections, max_keepalive_connections=connections
+            ),
+            follow_redirects=True,
         )
 
     async def __aenter__(self) -> RednoteClient:
@@ -75,7 +80,11 @@ class RednoteClient:
         sort: str = "general",
         originals: bool = True,
     ) -> list[Note]:
-        """Fetch up to ``limit`` notes, requesting all result pages in parallel."""
+        """Fetch up to ``limit`` notes, requesting the result pages in parallel.
+
+        Raises :class:`LimitError` if ``limit`` exceeds the configured ceiling.
+        """
+        self._limits.check_results(limit)
         pages = max(1, -(-limit // PAGE_SIZE))
         search_id = new_search_id()
         results = await asyncio.gather(
@@ -108,7 +117,7 @@ class RednoteClient:
             return destination
         partial = destination.with_suffix(destination.suffix + ".part")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        async with self._semaphore:
+        async with self._limiter.slot(paced=False):
             try:
                 async with self._http.stream(
                     "GET", url, headers={"user-agent": self._credentials.user_agent}
@@ -137,7 +146,7 @@ class RednoteClient:
             "geo": "",
             "image_formats": ["jpg", "webp", "avif"],
         }
-        async with self._semaphore:
+        async with self._limiter.slot():
             response = await self._http.post(
                 SEARCH_URL,
                 json=payload,
@@ -162,7 +171,7 @@ class RednoteClient:
 
     async def _resolve_video(self, note: Note) -> None:
         params = {"xsec_token": note.xsec_token, "xsec_source": "pc_search"}
-        async with self._semaphore:
+        async with self._limiter.slot():
             try:
                 response = await self._http.get(
                     ITEM_URL.format(note_id=note.note_id),

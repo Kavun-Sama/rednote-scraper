@@ -20,10 +20,17 @@ full-resolution image/video URL extraction and concurrent downloads.
 - Not implemented: proxy rotation, fingerprint spoofing, CAPTCHA solving.
   Requests reuse the `User-Agent` captured with the credentials and a randomly
   generated `search_id`.
-- Not implemented: rate limiting, request delays, backoff or retries. Request
-  concurrency is bounded only by `-c` (default 8), search result pages are
-  requested all at once, and `-n` has no upper limit. The single retry is
-  `--auto-refresh`, which re-harvests credentials after a rejected request.
+- Rate limits are on by default (`rednote_scraper/limiter.py`): at most 4
+  requests in flight, at least 0.5 s between the starts of two API requests
+  (search pages and note-page lookups; media downloads are not paced), and a
+  ceiling of 200 on `-n`, above which the search is rejected with an error.
+  Flags: `-c/--concurrency`, `--delay SECONDS`, `--max-results N`.
+  `--no-limits` restores the earlier unrestricted behaviour (8 requests in
+  flight, no pacing, no ceiling); explicit flags take precedence over it.
+  `rednote download` accepts `-c` and `--no-limits` only.
+- Not implemented: backoff, retries on errors, adaptive throttling. The single
+  retry is `--auto-refresh`, which re-harvests credentials after a rejected
+  request.
 - Intended for personal research use.
   <!-- TODO(user): intended use is a statement of intent; nothing in the code enforces or checks it -->
 - Not affiliated with RedNote or Xiaohongshu. Using this tool may violate their
