@@ -55,6 +55,10 @@ where it is implemented, and its limits.
   <!-- TODO(user): describe how the "URI only, not body, not clock" measurement was made; the experiment is not in the repository -->
 - **Implementation:** `rednote_scraper/credentials.py` (`from_har`,
   `Credentials.headers_for`), `rednote_scraper/client.py` (`_search_page`).
+- **Reproduce:** [`tools/measure_signature_scope.py`](tools/measure_signature_scope.py)
+  (changed body, URI and time, with negative controls) and
+  [`tools/measure_signature_lifetime.py`](tools/measure_signature_lifetime.py)
+  (signature lifetime); see [Measurements](#measurements).
 - **Limits:** only POST endpoints without a query string are kept; GET
   signatures are discarded by `from_har`. The client uses only the signature
   for the search endpoint. Signature lifetime is not established: the client
@@ -75,6 +79,9 @@ where it is implemented, and its limits.
   <!-- TODO(user): add the probing procedure and results, and state which endpoints were probed -->
 - **Implementation:** `rednote_scraper/credentials.py` (`REQUIRED_COOKIES`,
   `check_cookie`).
+- **Reproduce:** [`tools/measure_cookie_minimality.py`](tools/measure_cookie_minimality.py)
+  (leave-one-out, plus a joint test of the two required cookies); see
+  [Measurements](#measurements).
 - **Limits:** the stored cookie is not reduced: `import-har` and
   `auth refresh` save the full cookie, and `check_cookie` only enforces the two
   required values. Leave-one-out shows each remaining cookie is individually
@@ -115,6 +122,8 @@ where it is implemented, and its limits.
   <!-- TODO(user): the ~30x figure has no measurement in the repository, and the docstring of original_image_url says "an order of magnitude larger"; state the measurement or align the two -->
 - **Implementation:** `rednote_scraper/parsing.py` (`original_image_url`,
   `_pick_image_url`); `--preview-images` keeps the preview URLs.
+- **Reproduce:** [`tools/measure_image_sizes.py`](tools/measure_image_sizes.py);
+  see [Measurements](#measurements).
 - **Limits:** the rewrite assumes the first two path segments are the date and
   hash; a path with two or fewer segments keeps its path and only the host and
   suffix change. Only one URL shape is tested. Files are saved with a `.jpg`
@@ -142,6 +151,35 @@ where it is implemented, and its limits.
   points to `auth login`. The app-bound-encryption rationale is stated for
   Windows only, and the repository has no code that reads a user's own browser
   profile, so the alternative is not tested.
+
+## Measurements
+
+The scripts in [`tools/`](tools/) reproduce the measurable claims in Findings.
+They send requests to the live service with the credentials stored by
+`rednote auth`, so they act on your own session. Probe and image requests are
+sent one at a time with a pause (`--pause`, default 2 s). A run stops on HTTP 429
+and after three consecutive network errors. Run them from the repository root
+after `pip install -e .`:
+
+```
+python tools/measure_signature_scope.py --dry-run   # list the requests, send nothing
+python tools/measure_signature_scope.py
+```
+
+| Script | Finding | What it sends |
+| --- | --- | --- |
+| `measure_signature_scope.py` | 1 | Eleven search POSTs (ten with `--wait 0`) with the stored signature: changed body, a query string appended to the URI, shifted `x-t`, a delayed replay (`--wait`, default 120 s), and two negative controls (corrupted and missing signature). |
+| `measure_signature_lifetime.py` | 1 | One search POST per `--schedule` entry (default: ten probes over 24 h), stopping at the first rejection. Run `rednote auth refresh` first and keep the computer awake. |
+| `measure_cookie_minimality.py` | 2 | One search POST per stored cookie with that cookie removed, plus the full cookie, only the two required cookies, no cookie, and the full cookie again. |
+| `measure_image_sizes.py` | 4 | One search, then a preview and an original download per image (default 20 images, counted and discarded). |
+
+Each run writes `<name>-<UTC timestamp>.json` and `.md` to
+[`docs/measurements/`](docs/measurements/) (`--out-dir` overrides). Reports hold
+statuses, API codes, sizes, timings and cookie names, never cookie values or
+signatures.
+
+No measurements have been committed yet.
+<!-- TODO(user): run the scripts, commit the reports, link them from the matching Findings and close the TODOs there -->
 
 ## Install
 
@@ -178,16 +216,6 @@ Cookies:
 ```
 rednote auth cookie "web_session=040069..."
 ```
-
-### Why renewal needs a browser
-
-Every `webapi.rednote.com` endpoint is signed, the QR login flow included, and
-the QR status poll is a `GET` whose signature covers its query string — so it
-cannot be replayed the way the search signature can. A session therefore cannot
-be minted offline. A dedicated Playwright profile is used rather than the
-user's own browser profile because Chromium-based browsers on Windows bind
-their cookie store to the application (app-bound encryption), which makes
-reading their cookies from outside unreliable.
 
 ## Usage
 
