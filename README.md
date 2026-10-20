@@ -7,179 +7,44 @@
 Browserless CLI scraper for RedNote (Xiaohongshu) search results, with
 full-resolution image/video URL extraction and concurrent downloads.
 
+## How it works
+
+The web API signs every request with an `x-s`/`x-t` header pair. The signature
+covers the request URI only, not the request body and not the wall clock.
+`POST /api/sns/web/v1/search/notes` carries no query string, so a signature
+captured from the browser is reused for arbitrary keywords, pages and sort
+orders. No headless browser and no signing implementation are needed to search.
+
+Of the cookie, only `web_session` and `x-rednote-datactry` matter, according to
+leave-one-out probing; the rest of what the browser sends is decorative.
+`x-s-common` is kept when it was captured and is not required.
+
+Video stream URLs are absent from search results. They are read from the
+server-rendered note page (`/discovery/item/<id>`), which embeds
+`window.__INITIAL_STATE__` and is requested without a signature.
+
+Image URLs in search results point at resized CDN previews. Dropping the
+date/hash path segments and the `!variant` suffix and re-hosting on
+`sns-img-qc.xhscdn.com` yields the original upload, typically about an order of
+magnitude larger.
+
+Verification status and limits of each of these are in
+[docs/FINDINGS.md](docs/FINDINGS.md).
+
 ## Scope
 
-- Works with the user's own session. Credentials are a session cookie and a
-  request signature taken from a HAR capture exported by the user, from the
-  scraper's dedicated Playwright browser profile, or from a cookie value the
-  user pastes (`rednote auth cookie`).
-- Does not bypass login and does not create sessions. The scraper does not
-  automate sign-in: `rednote auth login` opens a visible browser window and
-  waits for a `web_session` cookie to appear. A session cannot be created
-  without a browser (see [Findings](#5-why-renewal-needs-a-browser)).
-- Not implemented: proxy rotation, fingerprint spoofing, CAPTCHA solving.
-  Requests reuse the `User-Agent` captured with the credentials and a randomly
-  generated `search_id`.
-- Rate limits are on by default (`rednote_scraper/limiter.py`): at most 4
-  requests in flight, at least 0.5 s between the starts of two API requests
-  (search pages and note-page lookups; media downloads are not paced), and a
-  ceiling of 200 on `-n`, above which the search is rejected with an error.
-  Flags: `-c/--concurrency`, `--delay SECONDS`, `--max-results N`.
-  `--no-limits` restores the earlier unrestricted behaviour (8 requests in
-  flight, no pacing, no ceiling); explicit flags take precedence over it.
-  `rednote download` accepts `-c` and `--no-limits` only.
-- Not implemented: backoff, retries on errors, adaptive throttling. The single
-  retry is `--auto-refresh`, which re-harvests credentials after a rejected
-  request.
-- Intended for personal research use.
-  <!-- TODO(user): intended use is a statement of intent; nothing in the code enforces or checks it -->
-- Not affiliated with RedNote or Xiaohongshu. Using this tool may violate their
-  Terms of Service; responsibility rests with the user.
-  <!-- TODO(user): the affiliation statement and the Terms of Service wording have not been checked against RedNote's current terms -->
-
-## Findings
-
-Each item lists the claim, how it was verified (as far as the repository shows),
-where it is implemented, and its limits.
-
-### 1. Request signing covers the URI only
-
-- **Claim:** the `x-s`/`x-t` signature covers the request URI only, not the
-  request body and not the time. `POST /api/sns/web/v1/search/notes` has no
-  query string, so one captured signature is reused for any keyword, page and
-  sort order.
-- **Verification:** no test or script in the repository exercises this; the
-  code relies on it (the stored signature is sent unchanged with every search
-  page request, only the JSON body differs). Commit `4e0b954` describes the
-  signature as URI-bound and body-agnostic.
-  <!-- TODO(user): describe how the "URI only, not body, not clock" measurement was made; the experiment is not in the repository -->
-- **Implementation:** `rednote_scraper/credentials.py` (`from_har`,
-  `Credentials.headers_for`), `rednote_scraper/client.py` (`_search_page`).
-- **Reproduce:** [`tools/measure_signature_scope.py`](tools/measure_signature_scope.py)
-  (changed body, URI and time, with negative controls) and
-  [`tools/measure_signature_lifetime.py`](tools/measure_signature_lifetime.py)
-  (signature lifetime); see [Measurements](#measurements).
-- **Limits:** only POST endpoints without a query string are kept; GET
-  signatures are discarded by `from_har`. The client uses only the signature
-  for the search endpoint. Signature lifetime is not established: the client
-  raises `SignatureExpiredError` on API code `-1`, and `rednote auth refresh`
-  re-harvests the signature.
-  <!-- TODO(user): state the measured signature lifetime; the previous README text said it stays valid until the session cookie expires, which conflicts with the code -1 handling in client.py -->
-
-### 2. Only two cookies are significant
-
-- **Claim:** leave-one-out probing showed that only `web_session` and
-  `x-rednote-datactry` matter; the other cookies the browser sends are not
-  required.
-- **Verification:** recorded in a source comment on `REQUIRED_COOKIES`
-  ("verified by leave-one-out probing of the live endpoint"). The probing
-  procedure and results are not in the repository. The test
-  `test_check_cookie_rejects_a_cookie_without_a_session` covers the validation
-  function only, not API behaviour.
-  <!-- TODO(user): add the probing procedure and results, and state which endpoints were probed -->
-- **Implementation:** `rednote_scraper/credentials.py` (`REQUIRED_COOKIES`,
-  `check_cookie`).
-- **Reproduce:** [`tools/measure_cookie_minimality.py`](tools/measure_cookie_minimality.py)
-  (leave-one-out, plus a joint test of the two required cookies); see
-  [Measurements](#measurements).
-- **Limits:** the stored cookie is not reduced: `import-har` and
-  `auth refresh` save the full cookie, and `check_cookie` only enforces the two
-  required values. Leave-one-out shows each remaining cookie is individually
-  dispensable.
-  <!-- TODO(user): confirm a request with only the two cookies was tested -->
-
-### 3. Video URLs come from the note page
-
-- **Claim:** video URLs are not present in search results. They are read from
-  the server-rendered note page (`/discovery/item/<id>`), from
-  `window.__INITIAL_STATE__`, and that request needs no signature.
-- **Verification:** parsing is covered by
-  `test_parse_note_page_tolerates_undefined_literals` and
-  `test_apply_video_detail_picks_the_largest_stream`. The request carries no
-  `x-s`/`x-t` (`Credentials.web_headers` sends only the cookie and
-  `User-Agent`). No test covers the absence of video URLs in search responses;
-  `parse_search_item` reads none.
-  <!-- TODO(user): state how the absence of video URLs in search responses was confirmed -->
-- **Implementation:** `rednote_scraper/client.py` (`_resolve_video`),
-  `rednote_scraper/parsing.py` (`parse_note_page`, `apply_video_detail`).
-- **Limits:** requires the `xsec_token` from the search item, and the request
-  is sent with the session cookie. One extra GET per video note. The embedded
-  state is extracted with a regular expression and nothing is returned if the
-  page layout differs; a failed request or parse leaves the note unresolved
-  (printed as `<unresolved>`). The largest stream by `size` across `h264`,
-  `h265`, `av1` and `h266` is chosen, regardless of codec.
-
-### 4. Original images
-
-- **Claim:** search results contain resized CDN previews. Removing the
-  date/hash path segments and the `!variant` suffix and switching the host to
-  `sns-img-qc.xhscdn.com` yields the original upload (~30x larger).
-- **Verification:** `test_original_image_url_strips_cdn_prefix_and_variant`
-  checks the rewrite for one URL, and
-  `test_parse_search_item_normalises_counters_and_media` checks it through
-  `parse_search_item`. No test checks that the rewritten URL serves the
-  original or measures the size ratio.
-  <!-- TODO(user): the ~30x figure has no measurement in the repository, and the docstring of original_image_url says "an order of magnitude larger"; state the measurement or align the two -->
-- **Implementation:** `rednote_scraper/parsing.py` (`original_image_url`,
-  `_pick_image_url`); `--preview-images` keeps the preview URLs.
-- **Reproduce:** [`tools/measure_image_sizes.py`](tools/measure_image_sizes.py);
-  see [Measurements](#measurements).
-- **Limits:** the rewrite assumes the first two path segments are the date and
-  hash; a path with two or fewer segments keeps its path and only the host and
-  suffix change. Only one URL shape is tested. Files are saved with a `.jpg`
-  extension regardless of the actual format (`media_targets`). A failed
-  original download is counted as failed; there is no fallback to the preview.
-
-### 5. Why renewal needs a browser
-
-- **Claim:** every `webapi.rednote.com` endpoint is signed, including the QR
-  login flow. The QR status poll is a `GET` whose signature covers its query
-  string, so it cannot be replayed the way the search signature is, and a
-  session cannot be created offline. A dedicated Playwright profile is used
-  instead of the user's own browser profile because Chromium-based browsers on
-  Windows bind their cookie store to the application (app-bound encryption),
-  which makes reading it from outside unreliable.
-- **Verification:** no test covers it; the statements appear in the module
-  docstrings of `browser.py` and `credentials.py`.
-  <!-- TODO(user): state how these were verified (captures of the login flow, behaviour of app-bound encryption on your machine) -->
-- **Implementation:** `rednote_scraper/browser.py` (`login`, `harvest`),
-  `rednote_scraper/credentials.py` (`PROFILE_DIR`, `from_har`),
-  `rednote_scraper/cli.py` (`auth login`, `auth refresh`, `--auto-refresh`).
-- **Limits:** requires the optional `browser` extra and Playwright Chromium.
-  `auth refresh` re-harvests from the profile's current session and does not
-  create one; if the profile is logged out it raises `CredentialsError` and
-  points to `auth login`. The app-bound-encryption rationale is stated for
-  Windows only, and the repository has no code that reads a user's own browser
-  profile, so the alternative is not tested.
-
-## Measurements
-
-The scripts in [`tools/`](tools/) reproduce the measurable claims in Findings.
-They send requests to the live service with the credentials stored by
-`rednote auth`, so they act on your own session. Probe and image requests are
-sent one at a time with a pause (`--pause`, default 2 s). A run stops on HTTP 429
-and after three consecutive network errors. Run them from the repository root
-after `pip install -e .`:
-
-```
-python tools/measure_signature_scope.py --dry-run   # list the requests, send nothing
-python tools/measure_signature_scope.py
-```
-
-| Script | Finding | What it sends |
-| --- | --- | --- |
-| `measure_signature_scope.py` | 1 | Eleven search POSTs (ten with `--wait 0`) with the stored signature: changed body, a query string appended to the URI, shifted `x-t`, a delayed replay (`--wait`, default 120 s), and two negative controls (corrupted and missing signature). |
-| `measure_signature_lifetime.py` | 1 | One search POST per `--schedule` entry (default: ten probes over 24 h), stopping at the first rejection. Run `rednote auth refresh` first and keep the computer awake. |
-| `measure_cookie_minimality.py` | 2 | One search POST per stored cookie with that cookie removed, plus the full cookie, only the two required cookies, no cookie, and the full cookie again. |
-| `measure_image_sizes.py` | 4 | One search, then a preview and an original download per image (default 20 images, counted and discarded). |
-
-Each run writes `<name>-<UTC timestamp>.json` and `.md` to
-[`docs/measurements/`](docs/measurements/) (`--out-dir` overrides). Reports hold
-statuses, API codes, sizes, timings and cookie names, never cookie values or
-signatures.
-
-No measurements have been committed yet.
-<!-- TODO(user): run the scripts, commit the reports, link them from the matching Findings and close the TODOs there -->
+- Works with your own session: a cookie and a request signature taken from a
+  HAR capture you export, from the scraper's dedicated Playwright browser
+  profile, or from a cookie value you paste.
+- Does not bypass login or create sessions: sign-in is manual, in a visible
+  browser window. No proxy rotation, fingerprint spoofing or CAPTCHA solving.
+- Rate limits are on by default: 4 requests at a time, at least 0.5 s between
+  the starts of two API requests, and a ceiling of 200 on `-n`. Override with
+  `-c`, `--delay` and `--max-results`, or lift them with `--no-limits`. There is
+  no backoff or retry beyond `--auto-refresh`.
+- Intended for personal research use. Not affiliated with RedNote or
+  Xiaohongshu; using this tool may violate their Terms of Service, and
+  responsibility rests with you.
 
 ## Install
 
@@ -209,9 +74,8 @@ rednote auth refresh    # headless; re-harvests cookie + signature
 rednote search "logo" -n 100 --auto-refresh
 ```
 
-**Cookie only** — the signature does not expire with the session, so a dead
-session can be revived by pasting one value from DevTools → Application →
-Cookies:
+**Cookie only** — replaces the session cookie and keeps the stored signatures.
+Paste one value from DevTools → Application → Cookies:
 
 ```
 rednote auth cookie "web_session=040069..."
@@ -222,7 +86,7 @@ rednote auth cookie "web_session=040069..."
 ```
 rednote search "logo design" -n 100
 rednote search "猫" -n 60 -t video -s popularity_descending --json cats.json
-rednote search "coffee shop" -n 200 -c 16 -d ./media
+rednote search "coffee shop" -n 200 -d ./media
 rednote download cats.json -o ./media
 ```
 
